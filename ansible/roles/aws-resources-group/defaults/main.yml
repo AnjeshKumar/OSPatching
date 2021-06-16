@@ -1,0 +1,4 @@
+aws_cli_path: '/usr/bin/aws'
+
+required_vars:
+  - aws_cli_path

@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: Anjesh Kumar
+  description: Enable and configure AWS VMs with CloudWatch Agent using AWS CLI
+  company: Halliburton
+  min_ansible_version: 2.8
+  license: proprietary

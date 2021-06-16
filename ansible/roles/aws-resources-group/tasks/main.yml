@@ -1,0 +1,112 @@
+---
+- name: Check if required parameters are defined
+  fail:
+    msg: "Required parameters {{ item }} are missing"
+  when: (vars[item] is none) or (vars[item] == '')
+  with_items: '{{ required_vars }}'
+
+- name: Get aws cli version
+  shell: "{{ aws_cli_path }} --version"
+
+- name: Associate SSM Document with all Linux Instances, installing CloudWatch Agent on them
+  shell: |
+    {{ aws_cli_path }} ssm send-command \
+        --document-name "AWS-ConfigureAWSPackage" \
+        --parameters 'name="AmazonCloudWatchAgent",action="Install",installationType="Uninstall and reinstall",version="",additionalArguments="{}"' \
+        --targets 'Key=tag:ssmdocument,Values=linux' \
+        --query "Command.CommandId" \
+        --output text
+  register: install_amzcloudwatch_pkg_linux_cmd
+
+- name: Wait for install_amzcloudwatch_pkg_linux_cmd to complete
+  shell: '{{ aws_cli_path }} ssm list-command-invocations --command-id {{ install_amzcloudwatch_pkg_linux_cmd.stdout }} --query "CommandInvocations[].{InstanceId:InstanceId,Status:Status}"'
+  register: install_amzcloudwatch_pkg_linux_status
+  vars:
+    total_query: "[*] | length(@)"
+    success_query: "[?Status=='Success'] | length(@)"
+  retries: 30
+  delay: 10
+  until: install_amzcloudwatch_pkg_linux_status.stdout | from_json | json_query(success_query) == install_amzcloudwatch_pkg_linux_status.stdout | from_json | json_query(total_query)
+
+- name: Associate SSM Document with all Windows Instances, installing CloudWatch Agent on them
+  shell: |
+    {{ aws_cli_path }} ssm send-command \
+        --document-name "AWS-ConfigureAWSPackage" \
+        --parameters 'name="AmazonCloudWatchAgent",action="Install",installationType="Uninstall and reinstall",version="",additionalArguments="{}"' \
+        --targets 'Key=tag:ssmdocument,Values=windows' \
+        --query "Command.CommandId" \
+        --output text
+  register: install_amzcloudwatch_pkg_windows_cmd
+
+- name: Wait for install_amzcloudwatch_pkg_windows_cmd to complete
+  shell: '{{ aws_cli_path }} ssm list-command-invocations --command-id {{ install_amzcloudwatch_pkg_windows_cmd.stdout }} --query "CommandInvocations[].{InstanceId:InstanceId,Status:Status}"'
+  register: install_amzcloudwatch_pkg_windows_status
+  vars:
+    total_query: "[*] | length(@)"
+    success_query: "[?Status=='Success'] | length(@)"
+  retries: 30
+  delay: 10
+  until: install_amzcloudwatch_pkg_windows_status.stdout | from_json | json_query(success_query) == install_amzcloudwatch_pkg_windows_status.stdout | from_json | json_query(total_query)
+
+- name: Creating Parameter Store contain the Agent Linux Configuration
+  shell: |
+    {{ aws_cli_path }} ssm put-parameter \
+        --description "Cloudwatch agent config to configure custom log" \
+        --name "CloudWatchLinux" \
+        --value "$config_json" \
+        --type String \
+        --overwrite
+  environment:
+    config_json: "{{ lookup('file', role_path + '/files/cw_agent_linux_config.json', convert_data=False ) | string }}"
+
+- name: Creating Parameter Store contain the Agent Windows Configuration
+  shell: |
+    {{ aws_cli_path }} ssm put-parameter \
+        --description "Cloudwatch agent config to configure custom log" \
+        --name "CloudWatchWindows" \
+        --value "$config_json" \
+        --type String \
+        --overwrite
+  environment:
+    config_json: "{{ lookup('file', role_path + '/files/cw_agent_windows_config.json', convert_data=False ) | string }}"
+
+
+- name: Associate SSM Document with all Linux Instances, deploying The CloudWatch Configuration File on them
+  shell: |
+    {{ aws_cli_path }} ssm send-command \
+        --document-name "AmazonCloudWatch-ManageAgent" \
+        --parameters 'action="configure",mode="ec2",optionalConfigurationSource="ssm",optionalConfigurationLocation="CloudWatchLinux",optionalOpenTelemetryCollectorConfigurationSource="default",optionalOpenTelemetryCollectorConfigurationLocation="",optionalRestart="yes"' \
+        --targets 'Key=tag:ssmdocument,Values=linux' \
+        --query "Command.CommandId" \
+        --output text
+  register: deploy_amzcloudwatch_cfg_linux_cmd
+
+- name: Wait for deploy_amzcloudwatch_cfg_linux_cmd to complete
+  shell: '{{ aws_cli_path }} ssm list-command-invocations --command-id {{ deploy_amzcloudwatch_cfg_linux_cmd.stdout }} --query "CommandInvocations[].{InstanceId:InstanceId,Status:Status}"'
+  register: deploy_amzcloudwatch_cfg_linux_status
+  vars:
+    total_query: "[*] | length(@)"
+    success_query: "[?Status=='Success'] | length(@)"
+  retries: 30
+  delay: 10
+  until: deploy_amzcloudwatch_cfg_linux_status.stdout | from_json | json_query(success_query) == deploy_amzcloudwatch_cfg_linux_status.stdout | from_json | json_query(total_query)
+
+- name: Associate SSM Document with all Windows Instances, deploying The CloudWatch Configuration File on them
+  shell: |
+    {{ aws_cli_path }} ssm send-command \
+        --document-name "AmazonCloudWatch-ManageAgent" \
+        --parameters 'action="configure",mode="ec2",optionalConfigurationSource="ssm",optionalConfigurationLocation="CloudWatchWindows",optionalOpenTelemetryCollectorConfigurationSource="default",optionalOpenTelemetryCollectorConfigurationLocation="",optionalRestart="yes"' \
+        --targets 'Key=tag:ssmdocument,Values=windows' \
+        --query "Command.CommandId" \
+        --output text
+  register: deploy_amzcloudwatch_cfg_windows_cmd
+
+- name: Wait for deploy_amzcloudwatch_cfg_windows_cmd to complete
+  shell: '{{ aws_cli_path }} ssm list-command-invocations --command-id {{ deploy_amzcloudwatch_cfg_windows_cmd.stdout }} --query "CommandInvocations[].{InstanceId:InstanceId,Status:Status}"'
+  register: deploy_amzcloudwatch_cfg_windows_status
+  vars:
+    total_query: "[*] | length(@)"
+    success_query: "[?Status=='Success'] | length(@)"
+  retries: 30
+  delay: 10
+  until: deploy_amzcloudwatch_cfg_windows_status.stdout | from_json | json_query(success_query) == deploy_amzcloudwatch_cfg_windows_status.stdout | from_json | json_query(total_query)
